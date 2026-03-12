@@ -1,0 +1,5 @@
+{
+  "name": "Windchill PLM Data Studio",
+  "description": "A portfolio project showcasing Data Engineering and GenAI capabilities with Windchill PLM data. Includes an AI BOM Analyzer, Engineering Change Impact Analyzer, PLM Knowledge Assistant, and a PLM Data Lake Dashboard.",
+  "requestFramePermissions": []
+}
