@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { parts, bom } from '../data/mockData';
 import { analyzeBOM } from '../services/gemini';
 import Markdown from 'react-markdown';
-import { Loader2, ChevronRight, ChevronDown, Network, Box, Zap, Settings, Layers, Wrench, CircleDashed } from 'lucide-react';
+import { Loader2, ChevronRight, ChevronDown, Network, Box, Zap, Settings, Layers, Wrench, CircleDashed, Search } from 'lucide-react';
 
 const getCategoryIcon = (category: string) => {
   switch (category) {
@@ -86,15 +86,39 @@ const BOMNode = ({ node, level = 0 }: { node: any, level?: number }) => {
 export default function Project1BOM() {
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedRootId, setSelectedRootId] = useState('EV-1000');
+  const [showResults, setShowResults] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
 
-  // Find the root assembly (EV-1000)
-  const rootAssembly = parts.find(p => p.category === 'Assembly' && p.id === 'EV-1000');
+  // Find the root assembly based on selection
+  const rootAssembly = parts.find(p => p.id === selectedRootId);
   const tree = rootAssembly ? buildTree(rootAssembly.id) : [];
+
+  const filteredParts = parts.filter(p => 
+    p.id.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    p.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        setShowResults(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleAnalyze = async () => {
     setLoading(true);
     try {
-      const result = await analyzeBOM(JSON.stringify(bom, null, 2), JSON.stringify(parts, null, 2));
+      // Pass the specific tree structure to the AI instead of the whole BOM
+      const treeData = {
+        root: rootAssembly,
+        structure: tree
+      };
+      const result = await analyzeBOM(JSON.stringify(treeData, null, 2), JSON.stringify(parts, null, 2));
       setAnalysis(result || 'No analysis returned.');
     } catch (error) {
       console.error(error);
@@ -113,7 +137,7 @@ export default function Project1BOM() {
         </div>
         <button 
           onClick={handleAnalyze}
-          disabled={loading}
+          disabled={loading || !rootAssembly}
           className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-2 shrink-0"
         >
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Network className="w-4 h-4" />}
@@ -124,24 +148,66 @@ export default function Project1BOM() {
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 flex-1 min-h-0">
         {/* Left: BOM Tree */}
         <div className="xl:col-span-3 bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
-          <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center">
-            <h2 className="font-medium text-slate-800 flex-1">Product Structure (eBOM)</h2>
-            <div className="hidden md:flex items-center gap-4 text-xs font-semibold text-slate-500 uppercase tracking-wider pr-4">
-              <span className="w-16 text-center">Qty</span>
-              <span className="w-20 text-center">Lifecycle</span>
-              <span className="w-24">Supplier</span>
-              <span className="w-16 text-right">Cost</span>
+          <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-medium text-slate-800 flex-1">Product Structure (eBOM)</h2>
+              <div className="hidden md:flex items-center gap-4 text-xs font-semibold text-slate-500 uppercase tracking-wider pr-4">
+                <span className="w-16 text-center">Qty</span>
+                <span className="w-20 text-center">Lifecycle</span>
+                <span className="w-24">Supplier</span>
+                <span className="w-16 text-right">Cost</span>
+              </div>
+            </div>
+            
+            {/* Search Bar */}
+            <div className="relative w-full md:w-96" ref={searchRef}>
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input 
+                  type="text"
+                  className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none shadow-sm"
+                  placeholder="Search part number or name (e.g., DRV-4000)..."
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setShowResults(true);
+                  }}
+                  onFocus={() => setShowResults(true)}
+                />
+              </div>
+              {showResults && searchQuery && (
+                <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-auto">
+                  {filteredParts.length > 0 ? filteredParts.map(p => (
+                    <div 
+                      key={p.id} 
+                      className="px-4 py-2 hover:bg-slate-50 cursor-pointer flex flex-col border-b border-slate-50 last:border-0"
+                      onClick={() => {
+                        setSelectedRootId(p.id);
+                        setSearchQuery('');
+                        setShowResults(false);
+                        setAnalysis(null); // Clear previous analysis
+                      }}
+                    >
+                      <span className="text-sm font-medium text-slate-900">{p.id}</span>
+                      <span className="text-xs text-slate-500">{p.name}</span>
+                    </div>
+                  )) : (
+                    <div className="px-4 py-3 text-sm text-slate-500">No parts found.</div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
+          
           <div className="overflow-auto flex-1 p-2">
-            {rootAssembly && (
+            {rootAssembly ? (
               <div className="relative">
                 <div className="flex items-center py-2 px-3 bg-indigo-50/50 rounded-md border border-indigo-100 mb-1">
                   <div className="w-5 h-5 flex items-center justify-center mr-1 text-indigo-500 shrink-0">
                     <ChevronDown className="w-4 h-4" />
                   </div>
                   <div className="mr-3 shrink-0">
-                    <Box className="w-5 h-5 text-indigo-600" />
+                    {getCategoryIcon(rootAssembly.category)}
                   </div>
                   <div className="flex-1 flex items-center gap-3 min-w-0">
                     <span className="text-sm font-mono font-bold text-indigo-900 shrink-0 w-24">{rootAssembly.id}</span>
@@ -149,7 +215,7 @@ export default function Project1BOM() {
                     <span className="text-xs px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full shrink-0 border border-indigo-200 w-16 text-center">Qty: 1</span>
                     
                     <div className="hidden md:flex items-center gap-4 ml-auto shrink-0">
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase font-bold tracking-wider w-20 text-center ${rootAssembly.lifecycle === 'RELEASED' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase font-bold tracking-wider w-20 text-center ${rootAssembly.lifecycle === 'RELEASED' ? 'bg-emerald-100 text-emerald-700' : rootAssembly.lifecycle === 'IN_WORK' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
                         {rootAssembly.lifecycle}
                       </span>
                       <span className="text-xs text-indigo-700 w-24 truncate">{rootAssembly.supplier}</span>
@@ -157,14 +223,22 @@ export default function Project1BOM() {
                     </div>
                   </div>
                 </div>
-                <div className="relative">
-                  <div className="absolute left-0 top-0 bottom-0 w-px bg-slate-200" style={{ marginLeft: '1.125rem' }}></div>
-                  <div>
-                    {tree.map((node) => (
-                      <BOMNode key={node.child} node={node} level={1} />
-                    ))}
+                {tree.length > 0 && (
+                  <div className="relative">
+                    <div className="absolute left-0 top-0 bottom-0 w-px bg-slate-200" style={{ marginLeft: '1.125rem' }}></div>
+                    <div>
+                      {tree.map((node) => (
+                        <BOMNode key={node.child} node={node} level={1} />
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-slate-400 p-6 text-center">
+                <Search className="w-12 h-12 mb-4 opacity-20" />
+                <p>No part selected or part not found.</p>
+                <p className="text-sm mt-2">Use the search bar above to find a part and view its BOM.</p>
               </div>
             )}
           </div>
@@ -195,7 +269,7 @@ export default function Project1BOM() {
                   <Network className="w-8 h-8 text-slate-300" />
                 </div>
                 <p className="font-medium text-slate-600 mb-1">No Analysis Generated</p>
-                <p className="text-sm">Click the "Analyze BOM with AI" button above to generate insights on cost, supply chain, and structure.</p>
+                <p className="text-sm">Click the "Analyze BOM with AI" button above to generate insights on cost, supply chain, and structure for the selected part.</p>
               </div>
             )}
           </div>
